@@ -1,5 +1,3 @@
-#!/usr/bin/env python3
-import numpy as np
 from random import randrange
 
 __author__ = "Lucas Kenzo Cyra"
@@ -9,22 +7,20 @@ __license__ = "MIT"
 GRID_SIZE = 3
 
 class TicTacToe:
-    def __init__(self, cpu_symbol, user_symbol):
-        self.tiles = np.zeros((GRID_SIZE, GRID_SIZE), dtype=int)
-        self.rows = np.zeros(GRID_SIZE, dtype=int)
-        self.cols = np.zeros(GRID_SIZE, dtype=int)
+    def __init__(self, cpu_first, difficulty):
+        self.tiles = [[0 for i in range(GRID_SIZE)] for j in range(GRID_SIZE)]
+        self.rows = [0 for i in range(GRID_SIZE)]
+        self.cols = [0 for i in range(GRID_SIZE)]
         self.diag = 0
         self.anti_diag = 0
-        self.user_symbol = user_symbol
-        self.cpu_symbol = cpu_symbol
-        self.cpu_turn = True
+        self.user_symbol = "O" if cpu_first else "X"
+        self.cpu_symbol = "X" if cpu_first else "O"
+        self.cpu_turn = cpu_first
         self.winner = None
         self.turn_num = 0
-        self.difficulty = 1
+        self.difficulty = difficulty
 
-    def __victory_for(self, x, y, mark):
-        # A função analisa o estado da placa a fim de verificar se 
-        # o jogador usando 'O's ou 'X's ganhou o jogo
+    def __change_score(self, x, y, mark):
         cpu_turn = self.cpu_turn
         rows = self.rows
         cols = self.cols
@@ -41,22 +37,24 @@ class TicTacToe:
            abs(self.anti_diag) == GRID_SIZE):
                self.winner = 1 if cpu_turn else 2 # se cpu ganhou retorna 1, se user ganhou retorna 2
 
-    def __make_move(self, pos):
+    def make_move(self, pos):
         cpu_turn = self.cpu_turn
         tiles = self.tiles
-        victory_for = self.__victory_for
+        change_score = self.__change_score
 
         mark = 1 if cpu_turn else -1
         x, y = pos
         tiles[x][y] = mark
-        victory_for(x, y, mark)
+        change_score(x, y, mark)
+        self.prev_move = (x, y, mark)
+        #print(f"score: {self.__get_score(self, x, y, mark)}")
         self.cpu_turn = not cpu_turn # toggle do turno
 
     def __display_board(self):
         # A função aceita um parâmetro contendo o status atual da placa
         # e o imprime no console.
         self.index = 0
-        self.arr_ravel = self.tiles.ravel()
+        self.arr_ravel = [el for row in self.tiles for el in row]
         def printSymbol():
             i = self.index
             symbol = i + 1
@@ -83,8 +81,10 @@ class TicTacToe:
     def __make_list_of_free_fields(self):
         # A função navega pelo tabuleiro e constrói uma lista de todas as casas livres; 
         # a lista consiste em tuplas, enquanto cada tupla é um par de números de linha e coluna.
-        free_fields = np.where(self.tiles == 0)
-        free_fields = list(zip(*free_fields)) # lista de tuples (x,y) das posicoes vazias
+        # lista de tuples (x,y) das posicoes vazias
+        free_fields = [(x,y) for x,row in enumerate(self.tiles)
+                        for y,el in enumerate(row)
+                            if el == 0]
         return free_fields
 
     @staticmethod
@@ -98,14 +98,14 @@ class TicTacToe:
         # verifica a entrada e atualiza o quadro de acordo com a decisão do usuário.
         format_input = self.__format_input
         make_list_of_free_fields = self.__make_list_of_free_fields
-        make_move = self.__make_move
+        make_move = self.make_move
         display_board = self.__display_board
         user_move = self.__user_move
 
         move = None
         while True:
             try:
-                move = int(input("Escolha a posicao (1-9): "))
+                move = int(input("Escolha a posicao [1-9] "))
                 if move < 1 or move > 9:
                     raise ValueError("Valor deve ser entre 1 e 9")
                 move = format_input(move)
@@ -133,12 +133,22 @@ class TicTacToe:
                 (x == y and self.diag == imminent_win_score) or
                 (x + y == (GRID_SIZE - 1) and self.anti_diag == imminent_win_score))
 
+    def __is_fork(self, move, mark):
+        x, y = move
+        imminent_win_score = mark * (GRID_SIZE - 1)
+        ways_to_win_after_move = sum([(self.rows[x] + mark == imminent_win_score),
+                                 (self.cols[y] + mark == imminent_win_score),
+                                 (x == y and self.diag + mark == imminent_win_score),
+                                 (x + y == (GRID_SIZE - 1) and self.anti_diag + mark == imminent_win_score)])
+        return ways_to_win_after_move >= 2 # Retorna se for fork
+
     def __make_critical_move(self, free_fields):
         is_winning_move = self.__is_winning_move
+        make_random_move = self.__make_random_move
 
         move = None
         win = None
-        block = None
+        block_win = None
         for m in free_fields:
             # Checa movimentos se for uma vitoria iminente
             if is_winning_move(m, 1): # Se cpu pode ganhar com um movimento
@@ -146,18 +156,51 @@ class TicTacToe:
                 break
             # Checa movimentos de bloqueio criticos se nao houver vitoria iminente
             elif is_winning_move(m, -1): # Se usuario pode ganhar com um movimento
-                block = m
-        move = win or block
+                block_win = m
+        move = (win or # Ordem de importancia das acoes
+                block_win or
+                make_random_move(free_fields))
+        return move
+
+    def __make_good_move(self, free_fields):
+
+        is_winning_move = self.__is_winning_move
+        make_random_move = self.__make_random_move
+        is_fork = self.__is_fork
+
+        move = None
+        win = None
+        block_win = None
+        fork = None
+        center = None
+        for m in free_fields:
+            # Checa movimentos se for uma vitoria iminente
+            if is_winning_move(m, 1): # Se cpu pode ganhar com um movimento
+                win = m # Movimento para ganhar
+                break
+            # Checa movimentos de bloqueio criticos se nao houver vitoria iminente
+            elif is_winning_move(m, -1): # Se usuario pode ganhar com um movimento
+                block_win = m # Movimento para bloquear vitoria do usuario
+            # Checa se for um fork para cpu
+            elif is_fork(m, 1):
+                fork = m # Movimento fork
+            elif m == (1,1): # Se centro estiver livre
+                center = m
+        move = (win or # Ordem de importancia das acoes
+                block_win or
+                fork or
+                center or
+                make_random_move(free_fields))
         return move
 
     def __cpu_move(self):
         # A função desenha o movimento do computador e atualiza o tabuleiro.
-        make_move = self.__make_move
+        make_move = self.make_move
         display_board = self.__display_board
         make_list_of_free_fields = self.__make_list_of_free_fields
         make_random_move = self.__make_random_move
         make_critical_move = self.__make_critical_move
-        #make_best_move = self.__make_best_move
+        make_good_move = self.__make_good_move
 
         free_fields = make_list_of_free_fields()
         move = None
@@ -166,12 +209,10 @@ class TicTacToe:
         elif self.difficulty == 2:
             move = make_critical_move(free_fields)
         elif self.difficulty == 3:
-            move = make_best_move(free_fields)
+            move = make_good_move(free_fields)
         else:
             print("Error in cpu difficulty setting and moves")
             return
-        if move is None:
-            move = make_random_move(free_fields)
         make_move(move) # Faz o movimento e atualiza o tabuleiro
         display_board() # Mostra o tabuleiro
 
@@ -181,12 +222,19 @@ class TicTacToe:
         user_move = self.__user_move
         turn_num = self.turn_num
         winner = self.winner
+        display_board = self.__display_board
+
+        if turn_num == 0 and not cpu_turn:
+            display_board()
 
         if turn_num == 9:
             self.winner = 3 # Retorna 3 se for empate
             return
         self.turn_num += 1
         cpu_move() if cpu_turn else user_move() # Alterna turnos
+
+    def start_message(self):
+        print(f"Usuario: {self.user_symbol} e CPU: {self.cpu_symbol}")
 
     def end_message(self):
         winner = self.winner
@@ -198,16 +246,23 @@ class TicTacToe:
             print("Empate")
 
 def main():
+    difficulty = 0
+    while not difficulty in range(1,4):
+        if not difficulty in range(1,4):
+            print("Indice de dificuldade deve ser entre 1 a 3")
+            difficulty = int(input("Dificuldade [1-3] "))
+    cpu_first = randrange(2)
     while(True):
-        game = TicTacToe("X", "O")
-        game.difficulty = 2
+        game = TicTacToe(cpu_first, difficulty)
+        game.start_message()
         while not game.winner:
             game.next_turn()
         game.end_message()
-        again = input("Denovo? [S/n] ").lower()
+        again = input("De novo? [S/n] ").lower()
         if (again != 's' and
             again != ''):
             break
+        cpu_first = not cpu_first # Muda quem comeca no proximo turno
 
 if __name__ == "__main__":
     main()
