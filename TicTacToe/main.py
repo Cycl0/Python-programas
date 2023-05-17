@@ -1,4 +1,7 @@
+#!/usr/bin/env python3
+import numpy as np
 from random import randrange
+import copy
 
 __author__ = "Lucas Kenzo Cyra"
 __version__ = "0.1.0"
@@ -8,9 +11,9 @@ GRID_SIZE = 3
 
 class TicTacToe:
     def __init__(self, cpu_first, difficulty):
-        self.tiles = [[0 for i in range(GRID_SIZE)] for j in range(GRID_SIZE)]
-        self.rows = [0 for i in range(GRID_SIZE)]
-        self.cols = [0 for i in range(GRID_SIZE)]
+        self.tiles = np.zeros((GRID_SIZE, GRID_SIZE), dtype=int)
+        self.rows = np.zeros(GRID_SIZE, dtype=int)
+        self.cols = np.zeros(GRID_SIZE, dtype=int)
         self.diag = 0
         self.anti_diag = 0
         self.user_symbol = "O" if cpu_first else "X"
@@ -19,6 +22,7 @@ class TicTacToe:
         self.winner = None
         self.turn_num = 0
         self.difficulty = difficulty
+        self.best_move = None
 
     def __change_score(self, x, y, mark):
         cpu_turn = self.cpu_turn
@@ -46,7 +50,6 @@ class TicTacToe:
         x, y = pos
         tiles[x][y] = mark
         change_score(x, y, mark)
-        self.prev_move = (x, y, mark)
         #print(f"score: {self.__get_score(self, x, y, mark)}")
         self.cpu_turn = not cpu_turn # toggle do turno
 
@@ -54,7 +57,7 @@ class TicTacToe:
         # A função aceita um parâmetro contendo o status atual da placa
         # e o imprime no console.
         self.index = 0
-        self.arr_ravel = [el for row in self.tiles for el in row]
+        self.arr_ravel = self.tiles.ravel()
         def printSymbol():
             i = self.index
             symbol = i + 1
@@ -81,10 +84,8 @@ class TicTacToe:
     def __make_list_of_free_fields(self):
         # A função navega pelo tabuleiro e constrói uma lista de todas as casas livres; 
         # a lista consiste em tuplas, enquanto cada tupla é um par de números de linha e coluna.
-        # lista de tuples (x,y) das posicoes vazias
-        free_fields = [(x,y) for x,row in enumerate(self.tiles)
-                        for y,el in enumerate(row)
-                            if el == 0]
+        free_fields = np.where(self.tiles == 0)
+        free_fields = list(zip(*free_fields)) # lista de tuples (x,y) das posicoes vazias
         return free_fields
 
     @staticmethod
@@ -193,6 +194,67 @@ class TicTacToe:
                 make_random_move(free_fields))
         return move
 
+    def make_copy(self):
+        return copy.deepcopy(self)
+
+    def __get_score(self):
+        if self.winner == 1:
+            return 10
+        elif self.winner == 2:
+            return -10
+        else:
+            return 0
+
+    def __minimax(self, score, is_maximizing):
+        free_fields = self.__make_list_of_free_fields()
+
+        # Estado final
+        score = self.__get_score()
+        if score != 0 or not free_fields:
+            return score
+
+        # Verifica todos os movimentos possiveis
+        self.best_move = None
+        best_score = None
+        if is_maximizing:
+            best_score = -float('inf')
+            for m in free_fields:
+                # Copia do jogo
+                new_game = self.make_copy()
+                new_game.make_move(m) # Simula movimento na copia
+                # Chama minimax recursivamente
+                score = new_game.__minimax(score, False)
+                if score > best_score:
+                    best_score = score
+                    self.best_move = m
+        else:
+            best_score = float('inf')
+            for m in free_fields:
+                # Copia do jogo
+                new_game = self.make_copy()
+                new_game.make_move(m) # Simula movimento na copia
+                # Chama minimax recursivamente
+                score = new_game.__minimax(score, True)
+                if score < best_score:
+                    best_score = score
+                    self.best_move = m
+        return best_score
+
+    @staticmethod
+    def __random_corner():
+        n = randrange(4)
+        corners = [(0,0), (0,2), (2,0), (2,2)]
+        return corners[n]
+
+    def __make_best_move(self):
+        move = None
+        if self.turn_num == 1: # Otimizacao do primeiro movimento, que sera sempre um canto
+            move = self.__random_corner()
+        else:
+            self.__minimax(self.__get_score(), self.cpu_turn)
+            move = self.best_move
+        return move
+
     def __cpu_move(self):
         # A função desenha o movimento do computador e atualiza o tabuleiro.
         make_move = self.make_move
@@ -201,6 +263,7 @@ class TicTacToe:
         make_random_move = self.__make_random_move
         make_critical_move = self.__make_critical_move
         make_good_move = self.__make_good_move
+        make_best_move = self.__make_best_move
 
         free_fields = make_list_of_free_fields()
         move = None
@@ -210,6 +273,8 @@ class TicTacToe:
             move = make_critical_move(free_fields)
         elif self.difficulty == 3:
             move = make_good_move(free_fields)
+        elif self.difficulty == 4:
+            move = make_best_move()
         else:
             print("Error in cpu difficulty setting and moves")
             return
@@ -247,10 +312,10 @@ class TicTacToe:
 
 def main():
     difficulty = 0
-    while not difficulty in range(1,4):
-        if not difficulty in range(1,4):
-            print("Indice de dificuldade deve ser entre 1 a 3")
-            difficulty = int(input("Dificuldade [1-3] "))
+    while not difficulty in range(1,5):
+        if not difficulty in range(1,5):
+            print("Indice de dificuldade deve ser entre 1 a 4")
+            difficulty = int(input("Dificuldade [1-4] "))
     cpu_first = randrange(2)
     while(True):
         game = TicTacToe(cpu_first, difficulty)
